@@ -165,3 +165,6 @@ data/
 
 .DS_Store
 /.Trash-0/
+/package.json
+/package-lock.json
+/node_modules/
