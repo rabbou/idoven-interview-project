@@ -5,13 +5,7 @@ from tensorflow.keras import layers, metrics, models, regularizers
 
 
 class ECGResNet:
-    def __init__(
-        self,
-        input_shape: Tuple[int],
-        num_classes: int = 1,
-        l2_reg: float = 0.001,
-        dropout_rate: float = 0.5,
-    ):
+    def __init__(self, input_shape: Tuple[int], l2_reg: float, dropout_rate: float, num_classes: int = 1):
         """
         Initialize ResNet model for ECG time series data.
 
@@ -27,44 +21,42 @@ class ECGResNet:
         self.dropout_rate = dropout_rate
         self.model = self.build_model()
 
-    def residual_block(self, filters: int, kernel_size: int = 3) -> models.Sequential:
+    def residual_block(self, x: tf.Tensor, filters: int, kernel_size: int = 3) -> models.Sequential:
         """
         Create a residual block with two Conv1D layers and a skip connection.
 
         Parameters:
+        - x (tf.Tensor): Input tensor.
         - filters (int): Number of filters for the convolutional layers.
         - kernel_size (int): Size of the convolutional kernel. Defaults to 3.
 
         Returns:
         - tf.keras.models.Sequential: A Sequential model containing the residual block.
         """
-        block = models.Sequential()
+        shortcut = x
+        x = layers.Conv1D(
+            filters=filters,
+            kernel_size=kernel_size,
+            padding="same",
+            activation="relu",
+            kernel_regularizer=regularizers.l2(self.l2_reg),
+        )(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Conv1D(
+            filters=filters,
+            kernel_size=kernel_size,
+            padding="same",
+            activation=None,
+            kernel_regularizer=regularizers.l2(self.l2_reg),
+        )(x)
+        x = layers.BatchNormalization()(x)
 
-        block.add(
-            layers.Conv1D(
-                filters=filters,
-                kernel_size=kernel_size,
-                padding="same",
-                activation="relu",
-                kernel_regularizer=regularizers.l2(self.l2_reg),
-            )
-        )
-        block.add(layers.BatchNormalization())
-        block.add(
-            layers.Conv1D(
-                filters=filters,
-                kernel_size=kernel_size,
-                padding="same",
-                activation=None,
-                kernel_regularizer=regularizers.l2(self.l2_reg),
-            )
-        )
-        block.add(layers.BatchNormalization())
+        if shortcut.shape[-1] != filters:
+            shortcut = layers.Conv1D(filters=filters, kernel_size=1, padding="same")(shortcut)
 
-        block.add(layers.Add())
-        block.add(layers.ReLU())
-
-        return block
+        x = layers.Add()([x, shortcut])
+        x = layers.ReLU()(x)
+        return x
 
     def build_model(self) -> tf.keras.Model:
         """
@@ -73,27 +65,28 @@ class ECGResNet:
         Returns:
         - tf.keras.Model: Compiled Keras model ready for training.
         """
-        model = models.Sequential()
+        inputs = layers.Input(shape=self.input_shape)
 
-        model.add(layers.Conv1D(64, kernel_size=7, padding="same", activation="relu", input_shape=self.input_shape))
-        model.add(layers.BatchNormalization())
-        model.add(layers.MaxPooling1D(pool_size=2))
+        x = layers.Conv1D(64, kernel_size=7, padding="same", activation="relu")(inputs)
+        x = layers.BatchNormalization()(x)
+        x = layers.MaxPooling1D(pool_size=2)(x)
 
-        model.add(self.residual_block(filters=64))
-        model.add(self.residual_block(filters=128))
-        model.add(self.residual_block(filters=256))
+        x = self.residual_block(x, filters=64)
+        x = self.residual_block(x, filters=128)
+        x = self.residual_block(x, filters=256)
 
-        model.add(layers.GlobalAveragePooling1D())
-        model.add(layers.Dense(128, activation="relu", kernel_regularizer=regularizers.l2(self.l2_reg)))
-        model.add(layers.Dropout(self.dropout_rate))
-        model.add(layers.Dense(self.num_classes, activation="sigmoid"))
+        x = layers.GlobalAveragePooling1D()(x)
+        x = layers.Dense(128, activation="relu", kernel_regularizer=regularizers.l2(self.l2_reg))(x)
+        x = layers.Dropout(self.dropout_rate)(x)
 
+        outputs = layers.Dense(self.num_classes, activation="sigmoid")(x)
+
+        model = models.Model(inputs=inputs, outputs=outputs)
         model.compile(
             optimizer=tf.keras.optimizers.Adam(),
             loss="binary_crossentropy",
             metrics=["accuracy", metrics.AUC(name="auc")],
         )
-
         return model
 
     def train(
