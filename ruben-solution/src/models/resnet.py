@@ -21,7 +21,7 @@ class ECGResNet:
         self.dropout_rate = dropout_rate
         self.model = self.build_model()
 
-    def residual_block(self, x: tf.Tensor, filters: int, kernel_size: int = 3) -> models.Sequential:
+    def residual_block(self, x: tf.Tensor, filters: int, kernel_size: int = 3) -> tf.keras.models:
         """
         Create a residual block with two Conv1D layers and a skip connection.
 
@@ -31,7 +31,7 @@ class ECGResNet:
         - kernel_size (int): Size of the convolutional kernel. Defaults to 3.
 
         Returns:
-        - tf.keras.models.Sequential: A Sequential model containing the residual block.
+        - tf.keras.models: A model containing the residual block.
         """
         shortcut = x
         x = layers.Conv1D(
@@ -60,7 +60,7 @@ class ECGResNet:
 
     def build_model(self) -> tf.keras.Model:
         """
-        Build and compile the ResNet model using the Sequential API.
+        Build and compile the ResNet model.
 
         Returns:
         - tf.keras.Model: Compiled Keras model ready for training.
